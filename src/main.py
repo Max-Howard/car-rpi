@@ -48,13 +48,13 @@ def select_driver():
 
 # Logging functions
 
-def log_failure():
+def log_failure(failure_type):
     with open(f"{usb_path}/connection_failures.csv", 'a', newline='') as csvfile:
-        fieldnames = ['Timestamp', 'Odometer Reading']
+        fieldnames = ['Timestamp', 'Odometer Reading',"Failure Type"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if csvfile.tell() == 0:
             writer.writeheader()
-        writer.writerow({'Timestamp': datetime.now(), 'Odometer Reading': get_odometer_reading()})
+        writer.writerow({'Timestamp': datetime.now(), 'Odometer Reading': get_odometer_reading(), 'Failure Type': failure_type})
 
 
 def log_trip_start(driver, trip_id, odometer_start):
@@ -64,10 +64,10 @@ def log_trip_start(driver, trip_id, odometer_start):
         writer.writeheader()
         writer.writerow({'Driver': driver, 'Start Time': datetime.now(), 'End Time': '', 'Start Location': get_location(), 'End Location': '', 'Start Odometer': odometer_start, 'End Odometer': '', 'Total Fuel Burn (L)': 0})
 
-def update_trip_end(trip_id, end_time, end_location, odometer_end, total_fuel_burn):
+def update_trip_end(trip_id, log_timestamp, end_location, odometer_end, total_fuel_burn):
     temp_file = f"{usb_path}/trip_{trip_id}.csv"
     temp_output = f"{usb_path}/trip_{trip_id}_temp.csv"
-    
+
     with open(temp_file, 'r', newline='') as csvfile, open(temp_output, 'w', newline='') as tempcsvfile:
         reader = csv.DictReader(csvfile)
         fieldnames = reader.fieldnames
@@ -75,7 +75,7 @@ def update_trip_end(trip_id, end_time, end_location, odometer_end, total_fuel_bu
         writer.writeheader()
         for row in reader:
             if row['End Time'] == '':
-                row['End Time'] = end_time
+                row['End Time'] = log_timestamp
                 row['End Location'] = end_location
                 row['End Odometer'] = odometer_end
                 row['Total Fuel Burn (L)'] = total_fuel_burn
@@ -106,9 +106,8 @@ def main():
         connection = obd.OBD()
 
     if not connection.is_connected():
-        log_failure()
-        print("OBD connection failed!")
-        exit()
+        log_failure("Connection Timeout")
+        # exit()
 
     trip_id = int(time.time())
     current_driver = select_driver()
@@ -118,22 +117,24 @@ def main():
     log_trip_start(current_driver, trip_id, odometer_start)
 
     total_fuel_burn = 0
+    previous_log_timestamp = datetime.now()
 
-    try:
-        while True:
-            loop_start_time = time.time()
-            fuel_rate = get_fuel_rate()
-            if fuel_rate:
-                time_elapsed = time.time() - loop_start_time
-                total_fuel_burn += (fuel_rate * time_elapsed) / 3600  # converting L/h to L/s
-                print(f"Driver: {current_driver}, Fuel Rate: {fuel_rate} L/h, Time Elapsed: {time_elapsed:.4f} s")
-            time.sleep(max(0, 0.05 - (time.time() - loop_start_time)))  # maintain 0.05s loop cycle
-    except KeyboardInterrupt:
-        end_time = datetime.now()
-        end_location = get_location()
-        odometer_end = get_odometer_reading()
-        update_trip_end(trip_id, end_time, end_location, odometer_end, total_fuel_burn)
-        print("Tracking stopped and trip logged.")
+    while True:
+        fuel_rate = get_fuel_rate()
+        if fuel_rate:
+            end_location = get_location()
+            odometer_end = get_odometer_reading()
+
+            time.sleep(max(0, 0.05 - (time.time() - previous_log_timestamp)))  # maintain 0.05s loop cycle
+
+            log_timestamp = datetime.now()
+            total_fuel_burn += (fuel_rate * (log_timestamp-previous_log_timestamp)) / 3600  # converting L/h to L
+            update_trip_end(trip_id, log_timestamp, end_location, odometer_end, total_fuel_burn)
+            previous_log_timestamp = log_timestamp
+        else:
+            log_failure("Fuel Rate Unavailable")
+            # break
+
 
 if __name__ == "__main__":
     main()
