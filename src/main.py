@@ -3,6 +3,7 @@ import os
 import csv
 import json
 import time
+from datetime import datetime
 from typing import Optional
 
 
@@ -23,10 +24,11 @@ def save_trip_to_json(filename: str = "trips") -> None:
     """
     Updates the trips json file with the current trip data.
     """
-    with open(f"{LOG_PATH}/{filename}.json", "r") as f:
+    with open(f"{LOG_PATH}/{filename}.json", "a+") as f:
+        f.seek(0)
         trips_data = json.load(f)
-    trips_data[current_trip_id] = current_trip
-    with open(f"{LOG_PATH}/{filename}.json", "w") as f:
+        trips_data[current_trip_id] = current_trip
+        f.seek(0)
         json.dump(trips_data, f)
 
 
@@ -192,6 +194,9 @@ def log_refill_event(trips, previous_fuel_level, current_fuel_level):
             for driver_id in drivers.keys():
                 row[driver_id] = drivers[driver_id]["fuel_usage"]
             writer.writerow(row)
+        # Save trips.json as trips_currentdatetime.json
+        current_datetime = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        os.rename(f"{LOG_PATH}/trips.json", f"{LOG_PATH}/trips_{current_datetime}.json")
         print("Refill event logged")
 
 
